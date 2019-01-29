@@ -1,0 +1,10 @@
+- hosts: fips
+  vars:
+    - rhn_org_id: <>
+    - activation_key: <>
+    - pool_ID: <>
+    - repo_list:
+      - rhel-7-server-rpms
+  roles:
+    - register
+    - enable-fips
