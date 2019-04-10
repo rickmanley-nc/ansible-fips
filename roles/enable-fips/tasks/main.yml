@@ -60,7 +60,7 @@
   failed_when: grubby_cmd.rc != 0
 
 - name: Check for UUID and Set the boot argument
-  shell: "uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && grubby --update-kernel=$(grubby --default-kernel) --args=boot=UUID=${uuid}"
+  shell: "uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && grubby --update-kernel=$(grubby --default-kernel) --args=root=UUID=${uuid}"
   register: boot_cmd
   failed_when: boot_cmd.rc != 0
 
@@ -69,7 +69,7 @@
   when: ansible_distribution_major_version == "7"
 
 - name: Get UUID and set it in the grub
-  shell: 'uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && sed -i "/^GRUB_CMDLINE_LINUX=/s/\"$/ boot=UUID=${uuid}\"/" /etc/default/grub'
+  shell: 'uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && sed -i "/^GRUB_CMDLINE_LINUX=/s/\"$/ root=UUID=${uuid}\"/" /etc/default/grub'
   when: ansible_distribution_major_version == "7"
 
 - name: restart server to get updated kernel
