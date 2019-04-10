@@ -1,35 +1,44 @@
 ---
-# tasks file for ansible.fips
-
 - name: Check for supported version
   fail:
     msg: "Please use a supported OS, detected: {{ ansible_distribution }}"
   when: ansible_distribution != "RedHat"
 
-- name: upgrade all packages
+- name: Checking for AES-NI
+  shell: 'cat /proc/cpuinfo'
+  register: cpu_contents
+
+- name: Check if prelink is installed
   yum:
-    name: '*'
-    state: latest
+    list="prelink"
+  register: is_installed
+
+- name: Getting kernel version
+  shell: 'uname -r'
+  register: kernel_version
+
+- name: Get boot partition uuid
+  shell: "findmnt -no uuid $(df /boot | cut -d' ' -f1 | tail -1)"
+  register: boot_part_uuid
+
+- name: Use root= or boot=
+  shell: "findmnt -no uuid /boot"
+  register: boot_exist
+  ignore_errors: True
+
+- debug:
+    var: boot_exist
 
 - name: Install dracut-fips
   yum:
     name: dracut-fips
     state: latest
 
-- name: Checking for AES-NI
-  shell: 'cat /proc/cpuinfo'
-  register: cpu_contents
-
 - name: Installing dracut-fips-aesni if AES support is found
   yum:
     name: dracut-fips-aesni
     state: latest
   when: cpu_contents.stdout.find('aes') != -1
-
-- name: Check if prelink is installed
-  yum:
-    list="prelink"
-  register: is_installed
 
 - name: Prelink is installed, turing off prelinking in /etc/sysconfig/prelink
   lineinfile:
@@ -42,50 +51,45 @@
   shell: 'prelink -uav'
   when:  (is_installed.results|length == -1) or (is_installed.results[1].yumstate == 'installed')
 
-- name: Getting kernel version
-  shell: 'uname -r'
-  register: kernel_version
-
 - name: Backup initramfs
   shell: "mv -v /boot/initramfs-$(uname -r).img{,.bak}"
 
 - name: Rebuild initramfs
-  shell: 'dracut'
+  shell: 'dracut -v -f'
   register: dracut_cmd
   failed_when: dracut_cmd.rc != 0
 
-- name: Edit the Kernel to include FIPS argument
-  shell: 'grubby --update-kernel=$(grubby --default-kernel) --args=fips=1'
-  register: grubby_cmd
-  failed_when: grubby_cmd.rc != 0
+- name: Add root=UUID=<uuid of root partition> to /etc/default/grub
+  lineinfile:
+    state: present
+    path: /etc/default/grub
+    backrefs: yes
+    regexp: '^(GRUB_CMDLINE_LINUX=(?!.*UUID)\"[^\"]+)(\".*)'
+    line: '\1 boot=UUID={{ item }}\2'
+  with_items: "{{ boot_part_uuid.stdout }}"
+  when: (ansible_distribution_major_version == "7" and boot_exist.rc==0)
 
-- name: Check for UUID and Set the boot argument
-  shell: "uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && grubby --update-kernel=$(grubby --default-kernel) --args=root=UUID=${uuid}"
-  register: boot_cmd
-  failed_when: boot_cmd.rc != 0
+- name: Add root=UUID=<uuid of root partition> to /etc/default/grub
+  lineinfile:
+    state: present
+    path: /etc/default/grub
+    backrefs: yes
+    regexp: '^(GRUB_CMDLINE_LINUX=(?!.*UUID)\"[^\"]+)(\".*)'
+    line: '\1 root=UUID={{ item }}\2'
+  with_items: "{{ boot_part_uuid.stdout }}"
+  when: (ansible_distribution_major_version == "7" and boot_exist.rc==1)
 
-- name: Adding FIPS to the grub
-  shell: "sed -i \'/^GRUB_CMDLINE_LINUX=/s/\"$/ fips=1\"/\' /etc/default/grub"
+- name: Add fips=1 to /etc/default/grub if its not already there
+  lineinfile:
+    state: present
+    path: /etc/default/grub
+    backrefs: yes
+    regexp: '^(GRUB_CMDLINE_LINUX=(?!.*fips)\"[^\"]+)(\".*)'
+    line: '\1 fips=1\2'
   when: ansible_distribution_major_version == "7"
 
-- name: Get UUID and set it in the grub
-  shell: 'uuid=$(findmnt -no uuid /boot) ; [[ -n $uuid ]] && sed -i "/^GRUB_CMDLINE_LINUX=/s/\"$/ root=UUID=${uuid}\"/" /etc/default/grub'
-  when: ansible_distribution_major_version == "7"
+- name: Update grub2.cnf
+  shell: 'grub2-mkconfig -o /etc/grub2.cfg'
 
-- name: restart server to get updated kernel
-  shell: sleep 2 && shutdown -r now "Ansible restart triggered for latest kernel"
-  async: 1
-  poll: 0
-  ignore_errors: true
-
-- name: waiting for server to come back online
-  wait_for:
-    host: fips
-    state: started
-    delay: 10
-    connect_timeout: 5
-    timeout: 300
-    port: 22
-  delegate_to: 127.0.0.1
-  become: false
-  ignore_errors: true
+#- name: Reboot the server
+#  reboot:
