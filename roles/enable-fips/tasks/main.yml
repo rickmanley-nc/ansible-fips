@@ -1,18 +1,21 @@
 ---
+  #TODO: Move this to main playbook for earlier abort
 - name: Check for supported version
   fail:
     msg: "Please use a supported OS, detected: {{ ansible_distribution }}"
   when: ansible_distribution != "RedHat"
 
+  #TODO: Use slurp module with base64 decode
 - name: Checking for AES-NI
   shell: 'cat /proc/cpuinfo'
   register: cpu_contents
 
 - name: Check if prelink is installed
   yum:
-    list="prelink"
+    list: prelink
   register: is_installed
 
+  #TODO: Use ansible_kernel fact
 - name: Getting kernel version
   shell: 'uname -r'
   register: kernel_version
@@ -48,18 +51,19 @@
   when:  (is_installed.results|length == -1) or (is_installed.results[1].yumstate == 'installed')
 
 - name: Undoing Prelink
-  shell: 'prelink -uav'
+  command: 'prelink -uav'
   when:  (is_installed.results|length == -1) or (is_installed.results[1].yumstate == 'installed')
 
 - name: Backup initramfs
   shell: "mv -v /boot/initramfs-$(uname -r).img{,.bak}"
 
 - name: Rebuild initramfs
-  shell: 'dracut -v -f'
+  command: 'dracut -v -f'
   register: dracut_cmd
   failed_when: dracut_cmd.rc != 0
 
-- name: Add root=UUID=<uuid of root partition> to /etc/default/grub
+#TODO: Is with_items helpful here?
+- name: Add boot=UUID=<uuid of root partition> to /etc/default/grub
   lineinfile:
     state: present
     path: /etc/default/grub
@@ -69,6 +73,7 @@
   with_items: "{{ boot_part_uuid.stdout }}"
   when: (ansible_distribution_major_version == "7" and boot_exist.rc==0)
 
+#TODO: Is with_items helpful here?
 - name: Add root=UUID=<uuid of root partition> to /etc/default/grub
   lineinfile:
     state: present
@@ -88,20 +93,18 @@
     line: '\1 fips=1\2'
   when: ansible_distribution_major_version == "7"
 
-- block:
-  - name: Check for BIOS or UEFI
-    stat: path=/sys/firmware/efi
-    register: efi
+- name: Check for BIOS or UEFI
+  stat: path=/sys/firmware/efi
+  register: efi
 
-  - name: Update grub2-efi.cfg
-    shell: 'grub2-mkconfig -o /etc/grub2-efi.cfg'
-    when: efi.stat.isdir is defined and efi.stat.isdir
+- name: Update grub2-efi.cfg
+  command: 'grub2-mkconfig -o /etc/grub2-efi.cfg'
+  when: efi.stat.isdir is defined and efi.stat.isdir
   
-  - name: Update grub2.cfg
-    shell: 'grub2-mkconfig -o /etc/grub2.cfg'
-    when: efi.stat.isdir is not defined
-  # end block
+- name: Update grub2.cfg
+  command: 'grub2-mkconfig -o /etc/grub2.cfg'
+  when: efi.stat.isdir is not defined
 
-#- name: Reboot the server
-#  reboot:
-#  when: reboot_it is true
+- name: Reboot the server
+  reboot:
+  when: reboot_it is true
