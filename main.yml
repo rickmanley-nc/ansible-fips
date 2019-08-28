@@ -1,5 +1,6 @@
 - hosts: localhost
   vars:
+    - reboot_it: false
     - rhn_org_id: <>
     - activation_key: <>
     - pool_ID: <>
