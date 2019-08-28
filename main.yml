@@ -1,10 +1,20 @@
-- hosts: fips
+- hosts: localhost
   vars:
     - rhn_org_id: <>
     - activation_key: <>
     - pool_ID: <>
     - repo_list:
       - rhel-7-server-rpms
-  roles:
-    - register
-    - enable-fips
+
+  tasks:
+    - name: Check if subscribed
+      command: subscription-manager status
+      ignore_errors: yes
+      register: subscription_result
+
+    - name: Register and subscribe this server
+      include_role: name=register
+      when: subscription_result.rc != 0
+
+    - name: Enable FIPS
+      include_role: name=enable-fips
