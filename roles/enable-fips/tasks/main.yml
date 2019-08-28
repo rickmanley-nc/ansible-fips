@@ -88,8 +88,20 @@
     line: '\1 fips=1\2'
   when: ansible_distribution_major_version == "7"
 
-- name: Update grub2.cnf
-  shell: 'grub2-mkconfig -o /etc/grub2.cfg'
+- block:
+  - name: Check for BIOS or UEFI
+    stat: path=/sys/firmware/efi
+    register: efi
+
+  - name: Update grub2-efi.cfg
+    shell: 'grub2-mkconfig -o /etc/grub2-efi.cfg'
+    when: efi.stat.isdir is defined and efi.stat.isdir
+  
+  - name: Update grub2.cfg
+    shell: 'grub2-mkconfig -o /etc/grub2.cfg'
+    when: efi.stat.isdir is not defined
+  # end block
 
 #- name: Reboot the server
 #  reboot:
+#  when: reboot_it is true
